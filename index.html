@@ -9,66 +9,65 @@
 body{
   background:#fff;color:#000;
   font-family:Georgia,serif;
-  display:flex;flex-direction:column;align-items:center;
-  padding:8px;min-height:100vh;
+  text-align:center;
+  padding:8px;
 }
 h1{font-size:1.3em;margin:6px 0;letter-spacing:3px}
 #status{
   font-size:1.1em;font-weight:bold;
-  margin:6px 0;min-height:1.5em;text-align:center;
+  margin:6px 0;min-height:1.5em;
 }
 #board-wrap{
-  width:min(94vw, 72vh);
-  height:min(94vw, 72vh);
   border:3px solid #000;
-  display:grid;
-  grid-template-columns:repeat(8,1fr);
-  grid-template-rows:repeat(8,1fr);
+  margin:0 auto;
+}
+#board-table{
+  width:100%;height:100%;
+  border-collapse:collapse;
+  table-layout:fixed;
 }
 .cell{
-  display:flex;align-items:center;justify-content:center;
-  font-size:calc(min(94vw, 72vh) / 8 * 0.72);
+  text-align:center;vertical-align:middle;
   cursor:pointer;
   -webkit-user-select:none;user-select:none;
   position:relative;
+  padding:0;
 }
 .light{background:#fff}
 .dark{background:#bbb}
-.sel{background:#777!important}
+.sel{background:#777}
 .hint::after{
   content:'';
   position:absolute;
   width:30%;height:30%;
+  top:35%;left:35%;
   border-radius:50%;
   background:rgba(0,0,0,0.35);
 }
 .hint-cap::after{
   content:'';
   position:absolute;
-  inset:0;
+  top:0;right:0;bottom:0;left:0;
   border:4px solid rgba(0,0,0,0.4);
 }
 .lastmove{outline:3px solid #000;outline-offset:-3px}
 .wpiece{color:#111}
 .bpiece{color:#000}
-#controls{
-  display:flex;gap:8px;margin:10px 0;
-  flex-wrap:wrap;justify-content:center;
-}
+#controls{margin:10px 0}
 button{
   font-size:1em;padding:10px 16px;
   border:2px solid #000;background:#fff;
   cursor:pointer;font-family:Georgia,serif;
-  min-width:72px;
+  min-width:72px;margin:4px;
 }
 button:active{background:#000;color:#fff}
-#info{font-size:0.8em;color:#666;text-align:center;margin-top:4px}
+#info{font-size:0.8em;color:#666;margin-top:4px}
 </style>
 </head>
 <body>
 <h1>♞ Chess</h1>
 <div id="status">白方走棋</div>
-<div id="board-wrap"></div>
+<div id="board-wrap"><table id="board-table"></table></div>
 <div id="controls">
   <button onclick="newGame()">新局</button>
   <button onclick="undoMove()">悔棋</button>
@@ -83,12 +82,24 @@ var P=1,N=2,B=3,R=4,Q=5,K=6;
 var W=1,BL=-1;
 var SYM={1:'♙','-1':'♟',2:'♘','-2':'♞',3:'♗','-3':'♝',4:'♖','-4':'♜',5:'♕','-5':'♛',6:'♔','-6':'♚'};
 var PVAL={1:100,2:320,3:330,4:500,5:900,6:20000};
-
-// Position bonus tables (64 elements, white index=s, black index=63-s)
 var PT=[0,0,0,0,0,0,0,0,50,50,50,50,50,50,50,50,10,10,20,30,30,20,10,10,5,5,10,25,25,10,5,5,0,0,0,20,20,0,0,0,5,-5,-10,0,0,-10,-5,5,5,10,10,-20,-20,10,10,5,0,0,0,0,0,0,0,0];
 var NT=[-50,-40,-30,-30,-30,-30,-40,-50,-40,-20,0,0,0,0,-20,-40,-30,0,10,15,15,10,0,-30,-30,5,15,20,20,15,5,-30,-30,0,15,20,20,15,0,-30,-30,5,10,15,15,10,5,-30,-40,-20,0,5,5,0,-20,-40,-50,-40,-30,-30,-30,-30,-40,-50];
 var BT=[-20,-10,-10,-10,-10,-10,-10,-20,-10,0,0,0,0,0,0,-10,-10,0,5,10,10,5,0,-10,-10,5,5,10,10,5,5,-10,-10,0,10,10,10,10,0,-10,-10,10,10,10,10,10,10,-10,-10,5,0,0,0,0,5,-10,-20,-10,-10,-10,-10,-10,-10,-20];
 var KT=[-30,-40,-40,-50,-50,-40,-40,-30,-30,-40,-40,-50,-50,-40,-40,-30,-30,-40,-40,-50,-50,-40,-40,-30,-30,-40,-40,-50,-50,-40,-40,-30,-20,-30,-30,-40,-40,-30,-30,-20,-10,-20,-20,-20,-20,-20,-20,-10,20,20,0,0,0,0,20,20,20,30,10,0,0,10,30,20];
+
+// ── Layout ─────────────────────────────────────────────────
+var CELL_SIZE = 40;
+
+function initSize(){
+  var vw = window.innerWidth || document.documentElement.clientWidth || 320;
+  var vh = window.innerHeight || document.documentElement.clientHeight || 480;
+  var size = Math.floor(Math.min(vw * 0.94, vh * 0.72));
+  CELL_SIZE = Math.floor(size / 8);
+  size = CELL_SIZE * 8;
+  var wrap = document.getElementById('board-wrap');
+  wrap.style.width = size + 'px';
+  wrap.style.height = size + 'px';
+}
 
 // ── State ──────────────────────────────────────────────────
 var board, turn, sel, hints, moves_hist, gameOver, lastMove, ep, cast;
@@ -119,19 +130,16 @@ function pseudoMoves(b,side,cs,epSq){
     var p=b[s]; if(!p||pcol(p)!==side) continue;
     var pt=Math.abs(p),r=row(s),c=col(s);
     if(pt===P){
-      // dir: white moves up (dir=-1, toward row 0), black moves down (dir=+1, toward row 7)
       var dir=-side, nr=r+dir;
       if(nr>=0&&nr<8){
         var fwd=sq(nr,c);
         if(!b[fwd]){
           moves.push([s,fwd,0]);
-          // Double push from starting row
           if((side===W&&r===6)||(side===BL&&r===1)){
             var fwd2=sq(r+2*dir,c);
             if(!b[fwd2]) moves.push([s,fwd2,0]);
           }
         }
-        // Diagonal captures and en passant
         for(var dc=-1;dc<=1;dc+=2){
           var tc=c+dc;
           if(tc>=0&&tc<8){
@@ -159,7 +167,6 @@ function pseudoMoves(b,side,cs,epSq){
           if(pcol(b[ts3])!==side) moves.push([s,ts3,0]);
         }
       }
-      // Castling
       if(side===W&&r===7&&c===4){
         if(cs.wK&&!b[sq(7,5)]&&!b[sq(7,6)]) moves.push([s,sq(7,6),2]);
         if(cs.wQ&&!b[sq(7,3)]&&!b[sq(7,2)]&&!b[sq(7,1)]) moves.push([s,sq(7,2),3]);
@@ -169,7 +176,6 @@ function pseudoMoves(b,side,cs,epSq){
         if(cs.bQ&&!b[sq(0,3)]&&!b[sq(0,2)]&&!b[sq(0,1)]) moves.push([s,sq(0,2),3]);
       }
     } else {
-      // Sliding pieces: bishop, rook, queen
       var dirs=[];
       if(pt===B||pt===Q) dirs=dirs.concat([[-1,-1],[-1,1],[1,-1],[1,1]]);
       if(pt===R||pt===Q) dirs=dirs.concat([[-1,0],[1,0],[0,-1],[0,1]]);
@@ -190,32 +196,26 @@ function pseudoMoves(b,side,cs,epSq){
   return moves;
 }
 
-// applyMove: returns {nb, nc, nep} without mutating inputs
 function applyMove(b,mv,cs){
   var from=mv[0], to=mv[1], flag=mv[2];
   var nb=b.slice(), p=nb[from];
   var pt=Math.abs(p), side=pcol(p);
   var nc={wK:cs.wK,wQ:cs.wQ,bK:cs.bK,bQ:cs.bQ}, nep=-1;
   nb[to]=p; nb[from]=0;
-  // En passant capture: remove the captured pawn (one row behind destination for capturing side)
   if(pt===P&&flag===4) nb[to+8*side]=0;
-  // Double push: set en passant square
   if(pt===P&&Math.abs(to-from)===16) nep=(from+to)>>1;
-  // King moves: update castling rights and move rook for castling
   if(pt===K){
     if(side===W){nc.wK=false;nc.wQ=false;}
     else{nc.bK=false;nc.bQ=false;}
-    if(flag===2){nb[to-1]=nb[to+1];nb[to+1]=0;}  // kingside: rook h→f
-    if(flag===3){nb[to+1]=nb[to-2];nb[to-2]=0;}  // queenside: rook a→d
+    if(flag===2){nb[to-1]=nb[to+1];nb[to+1]=0;}
+    if(flag===3){nb[to+1]=nb[to-2];nb[to-2]=0;}
   }
-  // Rook moves: update castling rights
   if(pt===R){
     if(from===sq(7,0)) nc.wQ=false;
     if(from===sq(7,7)) nc.wK=false;
     if(from===sq(0,0)) nc.bQ=false;
     if(from===sq(0,7)) nc.bK=false;
   }
-  // Pawn promotion (auto-queen)
   if(pt===P&&(row(to)===0||row(to)===7)) nb[to]=side*Q;
   return {nb:nb,nc:nc,nep:nep};
 }
@@ -349,7 +349,6 @@ function handleClick(s){
 function undoMove(){
   if(!moves_hist.length) return;
   var h=moves_hist.pop();
-  // In AI mode: if we restored to AI's turn, undo one more step to give player their move back
   if(aiOn&&h.t===BL&&moves_hist.length) h=moves_hist.pop();
   board=h.b; cast=h.c; ep=h.ep; turn=h.t;
   gameOver=false; sel=-1; hints=[]; lastMove=null;
@@ -379,36 +378,41 @@ function setStatus(t){document.getElementById('status').textContent=t;}
 
 // ── Render ─────────────────────────────────────────────────
 function render(){
-  var el=document.getElementById('board-wrap');
-  el.innerHTML='';
+  var tbl=document.getElementById('board-table');
+  tbl.innerHTML='';
+  var fs=Math.floor(CELL_SIZE*0.72)+'px';
+  var cs=CELL_SIZE+'px';
   for(var r=0;r<8;r++){
+    var tr=document.createElement('tr');
     for(var c=0;c<8;c++){
       var s=sq(r,c), p=board[s];
-      var div=document.createElement('div');
-      div.className='cell '+((r+c)%2===0?'light':'dark');
-      if(s===sel) div.classList.add('sel');
-      if(hints.indexOf(s)!==-1){
-        if(p) div.classList.add('hint-cap');
-        else div.classList.add('hint');
-      }
-      if(lastMove&&(lastMove[0]===s||lastMove[1]===s)) div.classList.add('lastmove');
+      var td=document.createElement('td');
+      var cls='cell '+((r+c)%2===0?'light':'dark');
+      if(s===sel) cls+=' sel';
+      if(hints.indexOf(s)!==-1) cls+=p?' hint-cap':' hint';
+      if(lastMove&&(lastMove[0]===s||lastMove[1]===s)) cls+=' lastmove';
+      td.className=cls;
+      td.style.width=cs;
+      td.style.height=cs;
+      td.style.fontSize=fs;
       if(p){
         var span=document.createElement('span');
         span.textContent=SYM[p];
         span.className=p>0?'wpiece':'bpiece';
-        // White pieces on dark squares: add white halo for visibility on e-ink
         if(p>0&&(r+c)%2===1){
           span.style.textShadow='0 0 3px #fff,0 0 6px #fff';
         }
-        div.appendChild(span);
+        td.appendChild(span);
       }
-      (function(sq2){div.addEventListener('click',function(){handleClick(sq2);});})(s);
-      el.appendChild(div);
+      (function(sq2){td.onclick=function(){handleClick(sq2);};})(s);
+      tr.appendChild(td);
     }
+    tbl.appendChild(tr);
   }
 }
 
 // ── Start ──────────────────────────────────────────────────
+initSize();
 initGame();
 render();
 </script>
