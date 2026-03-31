@@ -111,7 +111,7 @@ function col(s){return s&7}
 function pcol(p){return p>0?W:p<0?BL:0}
 
 function initGame(){
-  board=new Array(64).fill(0);
+  board=[];for(var j=0;j<64;j++)board[j]=0;
   var back=[R,N,B,Q,K,B,N,R];
   for(var i=0;i<8;i++){
     board[i]=-back[i];
