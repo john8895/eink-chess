@@ -49,9 +49,8 @@ h1{font-size:1.3em;margin:6px 0;letter-spacing:3px}
   border:4px solid rgba(0,0,0,0.4);
 }
 .lastmove{outline:3px solid #000;outline-offset:-3px}
-.wpiece{color:#111;text-shadow:0 0 2px #fff}
+.wpiece{color:#111}
 .bpiece{color:#000}
-/* Make white pieces stand out on dark squares with outline effect */
 #controls{
   display:flex;gap:8px;margin:10px 0;
   flex-wrap:wrap;justify-content:center;
@@ -64,17 +63,12 @@ button{
 }
 button:active{background:#000;color:#fff}
 #info{font-size:0.8em;color:#666;text-align:center;margin-top:4px}
-.coord{
-  position:absolute;font-size:0.28em;
-  color:#999;bottom:1px;right:2px;
-  pointer-events:none;
-}
 </style>
 </head>
 <body>
 <h1>♞ Chess</h1>
 <div id="status">白方走棋</div>
-<div id="board-wrap" id="board"></div>
+<div id="board-wrap"></div>
 <div id="controls">
   <button onclick="newGame()">新局</button>
   <button onclick="undoMove()">悔棋</button>
@@ -88,16 +82,17 @@ button:active{background:#000;color:#fff}
 var P=1,N=2,B=3,R=4,Q=5,K=6;
 var W=1,BL=-1;
 var SYM={1:'♙','-1':'♟',2:'♘','-2':'♞',3:'♗','-3':'♝',4:'♖','-4':'♜',5:'♕','-5':'♛',6:'♔','-6':'♚'};
-var FILES='abcdefgh';
 var PVAL={1:100,2:320,3:330,4:500,5:900,6:20000};
+
+// Position bonus tables (64 elements, white index=s, black index=63-s)
 var PT=[0,0,0,0,0,0,0,0,50,50,50,50,50,50,50,50,10,10,20,30,30,20,10,10,5,5,10,25,25,10,5,5,0,0,0,20,20,0,0,0,5,-5,-10,0,0,-10,-5,5,5,10,10,-20,-20,10,10,5,0,0,0,0,0,0,0,0];
 var NT=[-50,-40,-30,-30,-30,-30,-40,-50,-40,-20,0,0,0,0,-20,-40,-30,0,10,15,15,10,0,-30,-30,5,15,20,20,15,5,-30,-30,0,15,20,20,15,0,-30,-30,5,10,15,15,10,5,-30,-40,-20,0,5,5,0,-20,-40,-50,-40,-30,-30,-30,-30,-40,-50];
 var BT=[-20,-10,-10,-10,-10,-10,-10,-20,-10,0,0,0,0,0,0,-10,-10,0,5,10,10,5,0,-10,-10,5,5,10,10,5,5,-10,-10,0,10,10,10,10,0,-10,-10,10,10,10,10,10,10,-10,-10,5,0,0,0,0,5,-10,-20,-10,-10,-10,-10,-10,-10,-20];
 var KT=[-30,-40,-40,-50,-50,-40,-40,-30,-30,-40,-40,-50,-50,-40,-40,-30,-30,-40,-40,-50,-50,-40,-40,-30,-30,-40,-40,-50,-50,-40,-40,-30,-20,-30,-30,-40,-40,-30,-30,-20,-10,-20,-20,-20,-20,-20,-20,-10,20,20,0,0,0,0,20,20,20,30,10,0,0,10,30,20];
 
 // ── State ──────────────────────────────────────────────────
-var board,turn,sel,hints,history,gameOver,lastMove,ep,cast;
-var aiOn=true,aiLvl=2;
+var board, turn, sel, hints, moves_hist, gameOver, lastMove, ep, cast;
+var aiOn=true, aiLvl=2;
 
 function sq(r,c){return r*8+c}
 function row(s){return s>>3}
@@ -113,7 +108,7 @@ function initGame(){
     board[48+i]=P;
     board[56+i]=back[i];
   }
-  turn=W; sel=-1; hints=[]; history=[]; gameOver=false; lastMove=null;
+  turn=W; sel=-1; hints=[]; moves_hist=[]; gameOver=false; lastMove=null;
   ep=-1; cast={wK:true,wQ:true,bK:true,bQ:true};
 }
 
@@ -124,16 +119,19 @@ function pseudoMoves(b,side,cs,epSq){
     var p=b[s]; if(!p||pcol(p)!==side) continue;
     var pt=Math.abs(p),r=row(s),c=col(s);
     if(pt===P){
-      var dir=side, nr=r+dir;
+      // dir: white moves up (dir=-1, toward row 0), black moves down (dir=+1, toward row 7)
+      var dir=-side, nr=r+dir;
       if(nr>=0&&nr<8){
         var fwd=sq(nr,c);
         if(!b[fwd]){
           moves.push([s,fwd,0]);
+          // Double push from starting row
           if((side===W&&r===6)||(side===BL&&r===1)){
             var fwd2=sq(r+2*dir,c);
             if(!b[fwd2]) moves.push([s,fwd2,0]);
           }
         }
+        // Diagonal captures and en passant
         for(var dc=-1;dc<=1;dc+=2){
           var tc=c+dc;
           if(tc>=0&&tc<8){
@@ -146,7 +144,7 @@ function pseudoMoves(b,side,cs,epSq){
     } else if(pt===N){
       var knightDirs=[[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
       for(var i=0;i<knightDirs.length;i++){
-        var nr2=r+knightDirs[i][0],nc=c+knightDirs[i][1];
+        var nr2=r+knightDirs[i][0], nc=c+knightDirs[i][1];
         if(nr2>=0&&nr2<8&&nc>=0&&nc<8){
           var ts2=sq(nr2,nc);
           if(pcol(b[ts2])!==side) moves.push([s,ts2,0]);
@@ -155,12 +153,13 @@ function pseudoMoves(b,side,cs,epSq){
     } else if(pt===K){
       var kingDirs=[[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
       for(var i=0;i<kingDirs.length;i++){
-        var nr3=r+kingDirs[i][0],nc2=c+kingDirs[i][1];
+        var nr3=r+kingDirs[i][0], nc2=c+kingDirs[i][1];
         if(nr3>=0&&nr3<8&&nc2>=0&&nc2<8){
           var ts3=sq(nr3,nc2);
           if(pcol(b[ts3])!==side) moves.push([s,ts3,0]);
         }
       }
+      // Castling
       if(side===W&&r===7&&c===4){
         if(cs.wK&&!b[sq(7,5)]&&!b[sq(7,6)]) moves.push([s,sq(7,6),2]);
         if(cs.wQ&&!b[sq(7,3)]&&!b[sq(7,2)]&&!b[sq(7,1)]) moves.push([s,sq(7,2),3]);
@@ -170,11 +169,12 @@ function pseudoMoves(b,side,cs,epSq){
         if(cs.bQ&&!b[sq(0,3)]&&!b[sq(0,2)]&&!b[sq(0,1)]) moves.push([s,sq(0,2),3]);
       }
     } else {
+      // Sliding pieces: bishop, rook, queen
       var dirs=[];
       if(pt===B||pt===Q) dirs=dirs.concat([[-1,-1],[-1,1],[1,-1],[1,1]]);
       if(pt===R||pt===Q) dirs=dirs.concat([[-1,0],[1,0],[0,-1],[0,1]]);
       for(var d=0;d<dirs.length;d++){
-        var nr4=r+dirs[d][0],nc3=c+dirs[d][1];
+        var nr4=r+dirs[d][0], nc3=c+dirs[d][1];
         while(nr4>=0&&nr4<8&&nc3>=0&&nc3<8){
           var ts4=sq(nr4,nc3);
           if(b[ts4]){
@@ -190,26 +190,32 @@ function pseudoMoves(b,side,cs,epSq){
   return moves;
 }
 
+// applyMove: returns {nb, nc, nep} without mutating inputs
 function applyMove(b,mv,cs){
-  var from=mv[0],to=mv[1],flag=mv[2];
-  var nb=b.slice(),p=nb[from];
-  var pt=Math.abs(p),side=pcol(p);
-  var nc={wK:cs.wK,wQ:cs.wQ,bK:cs.bK,bQ:cs.bQ},nep=-1;
+  var from=mv[0], to=mv[1], flag=mv[2];
+  var nb=b.slice(), p=nb[from];
+  var pt=Math.abs(p), side=pcol(p);
+  var nc={wK:cs.wK,wQ:cs.wQ,bK:cs.bK,bQ:cs.bQ}, nep=-1;
   nb[to]=p; nb[from]=0;
-  if(pt===P&&flag===4) nb[to-8*side]=0;
+  // En passant capture: remove the captured pawn (one row behind destination for capturing side)
+  if(pt===P&&flag===4) nb[to+8*side]=0;
+  // Double push: set en passant square
   if(pt===P&&Math.abs(to-from)===16) nep=(from+to)>>1;
+  // King moves: update castling rights and move rook for castling
   if(pt===K){
     if(side===W){nc.wK=false;nc.wQ=false;}
     else{nc.bK=false;nc.bQ=false;}
-    if(flag===2){nb[to-1]=nb[to+1];nb[to+1]=0;}
-    if(flag===3){nb[to+1]=nb[to-2];nb[to-2]=0;}
+    if(flag===2){nb[to-1]=nb[to+1];nb[to+1]=0;}  // kingside: rook h→f
+    if(flag===3){nb[to+1]=nb[to-2];nb[to-2]=0;}  // queenside: rook a→d
   }
+  // Rook moves: update castling rights
   if(pt===R){
     if(from===sq(7,0)) nc.wQ=false;
     if(from===sq(7,7)) nc.wK=false;
     if(from===sq(0,0)) nc.bQ=false;
     if(from===sq(0,7)) nc.bK=false;
   }
+  // Pawn promotion (auto-queen)
   if(pt===P&&(row(to)===0||row(to)===7)) nb[to]=side*Q;
   return {nb:nb,nc:nc,nep:nep};
 }
@@ -221,13 +227,13 @@ function kingAt(b,side){
 
 function inCheck(b,side,cs,epSq){
   var ks=kingAt(b,side); if(ks<0) return true;
-  var opp=-side, ms=pseudoMoves(b,opp,cs,epSq);
+  var ms=pseudoMoves(b,-side,cs,epSq);
   for(var i=0;i<ms.length;i++) if(ms[i][1]===ks) return true;
   return false;
 }
 
 function legalMoves(b,side,cs,epSq){
-  var pseudo=pseudoMoves(b,side,cs,epSq),legal=[];
+  var pseudo=pseudoMoves(b,side,cs,epSq), legal=[];
   for(var i=0;i<pseudo.length;i++){
     var r=applyMove(b,pseudo[i],cs);
     if(!inCheck(r.nb,side,r.nc,r.nep)) legal.push(pseudo[i]);
@@ -235,12 +241,12 @@ function legalMoves(b,side,cs,epSq){
   return legal;
 }
 
-// ── Evaluation ────────────────────────────────────────────
+// ── Evaluation ─────────────────────────────────────────────
 function evaluate(b){
   var score=0;
   for(var s=0;s<64;s++){
     var p=b[s]; if(!p) continue;
-    var side=pcol(p),pt=Math.abs(p);
+    var side=pcol(p), pt=Math.abs(p);
     var idx=side===W?s:63-s;
     var bonus=0;
     if(pt===P) bonus=PT[idx];
@@ -283,7 +289,7 @@ function doAI(){
   if(gameOver||turn!==BL) return;
   var ms=legalMoves(board,BL,cast,ep);
   if(!ms.length) return;
-  var best=Infinity,bestMv=null;
+  var best=Infinity, bestMv=null;
   for(var i=0;i<ms.length;i++){
     var r=applyMove(board,ms[i],cast);
     var v=minimax(r.nb,aiLvl,-Infinity,Infinity,W,r.nc,r.nep);
@@ -292,9 +298,9 @@ function doAI(){
   if(bestMv) execMove(bestMv);
 }
 
-// ── Game Flow ─────────────────────────────────────────────
+// ── Game Flow ──────────────────────────────────────────────
 function execMove(mv){
-  history.push({b:board.slice(),c:{wK:cast.wK,wQ:cast.wQ,bK:cast.bK,bQ:cast.bQ},ep:ep,t:turn});
+  moves_hist.push({b:board.slice(),c:{wK:cast.wK,wQ:cast.wQ,bK:cast.bK,bQ:cast.bQ},ep:ep,t:turn});
   lastMove=[mv[0],mv[1]];
   var r=applyMove(board,mv,cast);
   board=r.nb; cast=r.nc; ep=r.nep;
@@ -304,7 +310,9 @@ function execMove(mv){
     gameOver=true;
     if(inCheck(board,turn,cast,ep)){
       setStatus(turn===BL?'白方勝！將死！':'黑方勝！將死！');
-    } else setStatus('和局！');
+    } else {
+      setStatus('和局！');
+    }
   } else if(inCheck(board,turn,cast,ep)){
     setStatus(turn===W?'白方被將！':'黑方被將！');
   } else {
@@ -325,44 +333,57 @@ function handleClick(s){
     }
   } else {
     if(s===sel){sel=-1;hints=[];render();return;}
-    var mv=legalMoves(board,turn,cast,ep).find(function(m){return m[0]===sel&&m[1]===s;});
-    if(mv){execMove(mv);}
-    else if(board[s]&&pcol(board[s])===turn){
+    var mv=legalMoves(board,turn,cast,ep).filter(function(m){return m[0]===sel&&m[1]===s;})[0];
+    if(mv){
+      execMove(mv);
+    } else if(board[s]&&pcol(board[s])===turn){
       sel=s;
       hints=legalMoves(board,turn,cast,ep).filter(function(m){return m[0]===s;}).map(function(m){return m[1];});
       render();
-    } else {sel=-1;hints=[];render();}
+    } else {
+      sel=-1;hints=[];render();
+    }
   }
 }
 
 function undoMove(){
-  if(!history.length) return;
-  var h=history.pop();
+  if(!moves_hist.length) return;
+  var h=moves_hist.pop();
+  // In AI mode: if we restored to AI's turn, undo one more step to give player their move back
+  if(aiOn&&h.t===BL&&moves_hist.length) h=moves_hist.pop();
   board=h.b; cast=h.c; ep=h.ep; turn=h.t;
   gameOver=false; sel=-1; hints=[]; lastMove=null;
   setStatus(turn===W?'白方走棋':'AI 走棋');
   render();
 }
 
-function newGame(){initGame();render();setStatus('白方走棋');}
+function newGame(){
+  initGame();
+  render();
+  setStatus('白方走棋');
+  if(aiOn&&turn===BL&&!gameOver) setTimeout(doAI,300);
+}
+
 function toggleAI(){
   aiOn=!aiOn;
   document.getElementById('aiLbl').textContent=aiOn?'開':'關';
   if(aiOn&&turn===BL&&!gameOver) setTimeout(doAI,300);
 }
+
 function cycleLevel(){
   aiLvl=aiLvl>=3?1:aiLvl+1;
   document.getElementById('lvLbl').textContent=aiLvl;
 }
+
 function setStatus(t){document.getElementById('status').textContent=t;}
 
-// ── Render ────────────────────────────────────────────────
+// ── Render ─────────────────────────────────────────────────
 function render(){
   var el=document.getElementById('board-wrap');
   el.innerHTML='';
   for(var r=0;r<8;r++){
     for(var c=0;c<8;c++){
-      var s=sq(r,c),p=board[s];
+      var s=sq(r,c), p=board[s];
       var div=document.createElement('div');
       div.className='cell '+((r+c)%2===0?'light':'dark');
       if(s===sel) div.classList.add('sel');
@@ -370,23 +391,16 @@ function render(){
         if(p) div.classList.add('hint-cap');
         else div.classList.add('hint');
       }
-      if(lastMove&&lastMove.indexOf(s)!==-1) div.classList.add('lastmove');
+      if(lastMove&&(lastMove[0]===s||lastMove[1]===s)) div.classList.add('lastmove');
       if(p){
         var span=document.createElement('span');
         span.textContent=SYM[p];
         span.className=p>0?'wpiece':'bpiece';
-        // White pieces: add background circle for visibility on dark squares
-        if(p>0 && (r+c)%2===1){
-          span.style.textShadow='0 0 0 2px #fff, 0 0 3px #fff';
+        // White pieces on dark squares: add white halo for visibility on e-ink
+        if(p>0&&(r+c)%2===1){
+          span.style.textShadow='0 0 3px #fff,0 0 6px #fff';
         }
         div.appendChild(span);
-      }
-      // coord label
-      if(c===7){
-        var coord=document.createElement('span');
-        coord.className='coord';
-        coord.textContent=8-r;
-        div.appendChild(coord);
       }
       (function(sq2){div.addEventListener('click',function(){handleClick(sq2);});})(s);
       el.appendChild(div);
@@ -394,7 +408,7 @@ function render(){
   }
 }
 
-// ── Start ─────────────────────────────────────────────────
+// ── Start ──────────────────────────────────────────────────
 initGame();
 render();
 </script>
