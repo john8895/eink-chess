@@ -12,9 +12,9 @@ body{
   text-align:center;
   padding:8px;
 }
-h1{font-size:1.3em;margin:6px 0;letter-spacing:3px}
+h1{font-size:3.9em;margin:6px 0;letter-spacing:3px}
 #status{
-  font-size:1.1em;font-weight:bold;
+  font-size:3.3em;font-weight:bold;
   margin:6px 0;min-height:1.5em;
 }
 #board-wrap{
@@ -55,13 +55,38 @@ h1{font-size:1.3em;margin:6px 0;letter-spacing:3px}
 .bpiece{color:#000;font-weight:bold}
 #controls{margin:10px 0}
 button{
-  font-size:1em;padding:10px 16px;
+  font-size:3em;padding:30px 48px;
   border:2px solid #000;background:#fff;
   cursor:pointer;font-family:Georgia,serif;
-  min-width:72px;margin:4px;
+  min-width:216px;margin:4px;
 }
 button:active{background:#000;color:#fff}
-#info{font-size:0.8em;color:#666;margin-top:4px}
+#info{font-size:2.4em;color:#666;margin-top:4px}
+.coord{
+  color:#666;text-align:center;vertical-align:middle;
+  font-family:Georgia,serif;padding:0;
+}
+#moves-log{
+  font-size:2.4em;color:#000;
+  margin-top:8px;
+  max-height:8em;overflow-y:auto;
+  text-align:left;
+  padding:4px 8px;
+  border:1px solid #ccc;
+  line-height:1.6;
+}
+#promo-overlay{
+  display:none;
+  position:fixed;top:0;left:0;right:0;bottom:0;
+  background:rgba(255,255,255,0.92);
+  z-index:100;
+  align-items:center;
+  justify-content:center;
+  flex-direction:column;
+}
+#promo-overlay.show{display:flex;}
+#promo-title{font-size:3em;font-weight:bold;margin-bottom:20px;}
+#promo-buttons{display:flex;flex-wrap:wrap;justify-content:center;gap:16px;}
 </style>
 </head>
 <body>
@@ -75,6 +100,17 @@ button:active{background:#000;color:#fff}
   <button onclick="cycleLevel()">難度<span id="lvLbl">2</span></button>
 </div>
 <div id="info">白=你 黑=AI　點棋子後點目標格</div>
+<div id="moves-log"></div>
+
+<div id="promo-overlay">
+  <div id="promo-title">選擇升變棋子</div>
+  <div id="promo-buttons">
+    <button onclick="pickPromo(5)">后 Q</button>
+    <button onclick="pickPromo(4)">車 R</button>
+    <button onclick="pickPromo(3)">象 B</button>
+    <button onclick="pickPromo(2)">馬 N</button>
+  </div>
+</div>
 
 <script>
 // ── Constants ──────────────────────────────────────────────
@@ -104,6 +140,8 @@ function initSize(){
 // ── State ──────────────────────────────────────────────────
 var board, turn, sel, hints, moves_hist, gameOver, lastMove, ep, cast;
 var aiOn=true, aiLvl=2;
+var moveLog=[];
+var pendingPromo=null;
 
 function sq(r,c){return r*8+c}
 function row(s){return s>>3}
@@ -121,6 +159,8 @@ function initGame(){
   }
   turn=W; sel=-1; hints=[]; moves_hist=[]; gameOver=false; lastMove=null;
   ep=-1; cast={wK:true,wQ:true,bK:true,bQ:true};
+  moveLog=[];
+  updateMovesLog();
 }
 
 // ── Move Generation ────────────────────────────────────────
@@ -216,7 +256,7 @@ function applyMove(b,mv,cs){
     if(from===sq(0,0)) nc.bQ=false;
     if(from===sq(0,7)) nc.bK=false;
   }
-  if(pt===P&&(row(to)===0||row(to)===7)) nb[to]=side*Q;
+  if(pt===P&&(row(to)===0||row(to)===7)) nb[to]=side*(mv[3]||Q);
   return {nb:nb,nc:nc,nep:nep};
 }
 
@@ -298,12 +338,88 @@ function doAI(){
   if(bestMv) execMove(bestMv);
 }
 
+// ── Algebraic Notation ─────────────────────────────────────
+function toAlg(mv, b){
+  var from=mv[0], to=mv[1], flag=mv[2], promoPiece=mv[3];
+  var p=b[from];
+  var pt=Math.abs(p), side=pcol(p);
+  var files='abcdefgh';
+  var toFile=files[col(to)];
+  var toRank=''+(8-row(to));
+
+  // Castling
+  if(pt===K&&flag===2) return 'O-O';
+  if(pt===K&&flag===3) return 'O-O-O';
+
+  var prefix='';
+  var capture=b[to]!==0||(pt===P&&flag===4);
+
+  if(pt===P){
+    if(capture){
+      prefix=files[col(from)];
+    }
+  } else {
+    var ptNames={2:'N',3:'B',4:'R',5:'Q',6:'K'};
+    prefix=ptNames[pt]||'';
+  }
+
+  var capStr=capture?'x':'';
+  var promoStr='';
+  if(pt===P&&(row(to)===0||row(to)===7)){
+    var pnames={2:'N',3:'B',4:'R',5:'Q'};
+    promoStr='='+(pnames[promoPiece||Q]||'Q');
+  }
+
+  // Check/checkmate suffix
+  var r=applyMove(b,mv,cast);
+  var suffix='';
+  var nextLegal=legalMoves(r.nb,-side,r.nc,r.nep);
+  if(inCheck(r.nb,-side,r.nc,r.nep)){
+    suffix=nextLegal.length===0?'#':'+';
+  }
+
+  return prefix+capStr+toFile+toRank+promoStr+suffix;
+}
+
+// ── Moves Log ──────────────────────────────────────────────
+function updateMovesLog(){
+  var el=document.getElementById('moves-log');
+  if(!moveLog.length){el.textContent='';return;}
+  var pairs=[];
+  for(var i=0;i<moveLog.length;i+=2){
+    var num=Math.floor(i/2)+1;
+    var line=num+'. '+moveLog[i];
+    if(moveLog[i+1]) line+=' '+moveLog[i+1];
+    pairs.push(line);
+  }
+  el.textContent=pairs.join('  ');
+  el.scrollTop=el.scrollHeight;
+}
+
+// ── Promotion ──────────────────────────────────────────────
+function showPromo(mv){
+  pendingPromo=mv;
+  document.getElementById('promo-overlay').className='show';
+}
+
+function pickPromo(piece){
+  document.getElementById('promo-overlay').className='';
+  if(!pendingPromo) return;
+  pendingPromo[3]=piece;
+  var mv=pendingPromo;
+  pendingPromo=null;
+  execMove(mv);
+}
+
 // ── Game Flow ──────────────────────────────────────────────
 function execMove(mv){
-  moves_hist.push({b:board.slice(),c:{wK:cast.wK,wQ:cast.wQ,bK:cast.bK,bQ:cast.bQ},ep:ep,t:turn});
+  var alg=toAlg(mv, board);
+  moves_hist.push({b:board.slice(),c:{wK:cast.wK,wQ:cast.wQ,bK:cast.bK,bQ:cast.bQ},ep:ep,t:turn,logLen:moveLog.length});
   lastMove=[mv[0],mv[1]];
   var r=applyMove(board,mv,cast);
   board=r.nb; cast=r.nc; ep=r.nep;
+  moveLog.push(alg);
+  updateMovesLog();
   turn=-turn; sel=-1; hints=[];
   var ms=legalMoves(board,turn,cast,ep);
   if(!ms.length){
@@ -335,7 +451,15 @@ function handleClick(s){
     if(s===sel){sel=-1;hints=[];render();return;}
     var mv=legalMoves(board,turn,cast,ep).filter(function(m){return m[0]===sel&&m[1]===s;})[0];
     if(mv){
-      execMove(mv);
+      // Check for pawn promotion
+      var pt=Math.abs(board[mv[0]]);
+      var toRow=row(mv[1]);
+      if(pt===P&&(toRow===0||toRow===7)){
+        sel=-1; hints=[];
+        showPromo(mv.slice());
+      } else {
+        execMove(mv);
+      }
     } else if(board[s]&&pcol(board[s])===turn){
       sel=s;
       hints=legalMoves(board,turn,cast,ep).filter(function(m){return m[0]===s;}).map(function(m){return m[1];});
@@ -351,6 +475,8 @@ function undoMove(){
   var h=moves_hist.pop();
   if(aiOn&&h.t===BL&&moves_hist.length) h=moves_hist.pop();
   board=h.b; cast=h.c; ep=h.ep; turn=h.t;
+  moveLog=moveLog.slice(0,h.logLen);
+  updateMovesLog();
   gameOver=false; sel=-1; hints=[]; lastMove=null;
   setStatus(turn===W?'白方走棋':'AI 走棋');
   render();
@@ -382,8 +508,21 @@ function render(){
   tbl.innerHTML='';
   var fs=Math.floor(CELL_SIZE*0.55)+'px';
   var cs=CELL_SIZE+'px';
+  var coordSize=Math.max(18,Math.floor(CELL_SIZE*0.32))+'px';
+  var coordWidth=Math.max(20,Math.floor(CELL_SIZE*0.38))+'px';
+  var files='abcdefgh';
+
   for(var r=0;r<8;r++){
     var tr=document.createElement('tr');
+
+    // Rank coordinate (left side)
+    var rankTd=document.createElement('td');
+    rankTd.className='coord';
+    rankTd.style.width=coordWidth;
+    rankTd.style.fontSize=coordSize;
+    rankTd.textContent=''+(8-r);
+    tr.appendChild(rankTd);
+
     for(var c=0;c<8;c++){
       var s=sq(r,c), p=board[s];
       var td=document.createElement('td');
@@ -406,6 +545,22 @@ function render(){
     }
     tbl.appendChild(tr);
   }
+
+  // File coordinate row (bottom)
+  var fileTr=document.createElement('tr');
+  var emptyTd=document.createElement('td');
+  emptyTd.className='coord';
+  emptyTd.style.width=coordWidth;
+  fileTr.appendChild(emptyTd);
+  for(var c2=0;c2<8;c2++){
+    var fileTd=document.createElement('td');
+    fileTd.className='coord';
+    fileTd.style.fontSize=coordSize;
+    fileTd.style.height=coordWidth;
+    fileTd.textContent=files[c2];
+    fileTr.appendChild(fileTd);
+  }
+  tbl.appendChild(fileTr);
 }
 
 // ── Start ──────────────────────────────────────────────────
