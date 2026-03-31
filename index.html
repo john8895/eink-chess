@@ -124,7 +124,7 @@ function pseudoMoves(b,side,cs,epSq){
     var p=b[s]; if(!p||pcol(p)!==side) continue;
     var pt=Math.abs(p),r=row(s),c=col(s);
     if(pt===P){
-      var dir=side, nr=r+dir;
+      var dir=-side, nr=r+dir;
       if(nr>=0&&nr<8){
         var fwd=sq(nr,c);
         if(!b[fwd]){
@@ -196,7 +196,7 @@ function applyMove(b,mv,cs){
   var pt=Math.abs(p),side=pcol(p);
   var nc={wK:cs.wK,wQ:cs.wQ,bK:cs.bK,bQ:cs.bQ},nep=-1;
   nb[to]=p; nb[from]=0;
-  if(pt===P&&flag===4) nb[to-8*side]=0;
+  if(pt===P&&flag===4) nb[to+8*side]=0;
   if(pt===P&&Math.abs(to-from)===16) nep=(from+to)>>1;
   if(pt===K){
     if(side===W){nc.wK=false;nc.wQ=false;}
